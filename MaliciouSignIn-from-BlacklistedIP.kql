@@ -1,0 +1,9 @@
+let BlockList = (externaldata(ip:string)
+[@"https://www.patrick-binder.de/ipblacklist.txt"]
+with(format="txt")
+| distinct ip
+| where ip matches regex "(^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$)"
+);
+AADSignInEventsBeta 
+| where Timestamp > ago(1h)
+| where IPAddress in (BlockList)
