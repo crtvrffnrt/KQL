@@ -1,0 +1,8 @@
+EmailEvents
+| where Timestamp > ago(1h)
+| where Subject contains "Message" 
+| where Subject contains "Voice"
+| join kind=inner (EmailAttachmentInfo 
+| where FileName contains "Message"
+| where FileName contains ".htm"
+) on NetworkMessageId
