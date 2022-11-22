@@ -1,0 +1,9 @@
+AuditLogs 
+| where OperationName == "Add member to role" 
+| where parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[1].newValue)) contains "administrator" 
+| extend TargetUser_ = tostring(TargetResources[0].userPrincipalName) 
+| extend assignedrole_ = tostring(parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[1].newValue))) 
+| extend oldValue_ = tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[1].oldValue) 
+| extend ipAddress_ = tostring(parse_json(tostring(InitiatedBy.user)).ipAddress) 
+| extend initiatingUser_ = tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName) 
+| project TimeGenerated,assignedrole_,oldValue_, TargetUser_, initiatingUser_ 
