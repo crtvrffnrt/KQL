@@ -1,0 +1,4 @@
+let Filetype = dynamic([".jpg.exe",".doc.exe",".docx.exe",".xls.exe",".xlsx.exe",".png.exe",".pdf.exe",".jpg.msi",".doc.msi",".docx.msi",".xls.msi",".xlsx.msi",".png.msi",".pdf.msi",".jpg.ps1",".doc.ps1",".docx.ps1",".xls.ps1",".xlsx.ps1",".png.ps1",".pdf.ps1",".jpg.bat",".doc.bat",".docx.bat",".xls.bat",".xlsx.bat",".png.bat",".pdf.bat",".jpg.cmd",".doc.cmd",".docx.cmd",".xls.cmd",".xlsx.cmd",".png.cmd",".pdf.cmd"]);
+DeviceProcessEvents 
+| where Timestamp > ago(1h) 
+| where FileName has_any (Filetype)
