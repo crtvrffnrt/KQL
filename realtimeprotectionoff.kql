@@ -1,0 +1,13 @@
+DeviceTvmSecureConfigurationAssessment
+| where Timestamp > ago(1h)
+| where ConfigurationId == 'scid-2012'
+| where OSPlatform == "Windows10"
+| extend
+RealtimeProtection=iif(ConfigurationId == "scid-2012" and IsCompliant==1, 1, 0)
+| summarize
+ReportId=any(DeviceId),
+Timestamp=any(Timestamp),
+DeviceName=any(DeviceName),
+Is_RealtimeProtection_active_on_Host=iif(max(RealtimeProtection) == 1, "Yes", "No")
+by DeviceId
+| where Is_RealtimeProtection_active_on_Host == "No"
