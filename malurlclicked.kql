@@ -1,0 +1,8 @@
+let urlhouseurl = (externaldata(mal_url: string)
+[@"https://urlhaus.abuse.ch/downloads/text_online/"]
+with (format="txt"))
+| project mal_url;
+search in (DeviceNetworkEvents,DeviceFileEvents, DeviceEvents)
+Timestamp > ago (1h)
+| where RemoteUrl in (urlhouseurl) or FileOriginUrl in (urlhouseurl)
+| project Timestamp, DeviceId, DeviceName, InitiatingProcessAccountUpn,FolderPath , ReportId
