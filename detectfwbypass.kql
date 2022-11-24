@@ -4,3 +4,8 @@ DeviceEvents
 | where Timestamp > ago (1h) 
 | where ActionType == "PowerShellCommand" 
 | where AdditionalFields contains powershellCommandName
+
+DeviceRegistryEvents
+| where Timestamp > ago(5h)
+| where RegistryValueName == "EnableFirewall"
+| where RegistryValueData == "0"
