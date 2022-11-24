@@ -1,0 +1,11 @@
+let IPs = (externaldata(ip:string)
+[@"https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"]
+with(format="txt")
+| distinct ip
+| where ip matches regex "(^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$)"
+);
+//Query Search for current malicious Botnet IPs in multible Tables
+union AADSignInEventsBeta,AADSpnSignInEventsBeta,DeviceNetworkEvents, EmailEvents, IdentityLogonEvents, DeviceLogonEvents, UrlClickEvents
+| where Timestamp > ago(1h)
+| where IPAddress in (IPs) or RemoteIP in (IPs) or SenderIPv4 in (IPs)
+| project-rename ReportId = ReportId_long
