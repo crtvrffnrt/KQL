@@ -1,0 +1,5 @@
+DeviceEvents
+| where Timestamp > ago(3h)
+| where ActionType == "UserAccountAddedToLocalGroup"
+| extend LocalGroupSID = AccountSid
+| where LocalGroupSID == "S-1-5-32-544"
