@@ -1,0 +1,6 @@
+DeviceNetworkEvents
+| where Timestamp > ago(1d)
+| where InitiatingProcessFileName contains "nmap"
+| summarize RemotePortCount=dcount(RemotePort) by Timestamp, DeviceName,LocalIP,RemoteIP,RemoteUrl, InitiatingProcessFileName,  InitiatingProcessCommandLine, InitiatingProcessFolderPath, ReportId, DeviceId
+| where RemoteUrl contains "." or RemoteUrl contains "0" or RemoteUrl contains ":" or RemoteUrl contains "%" or RemoteUrl contains "http"
+| where DeviceId != "1586d74a9f37323d27f7e29ec1a234324fsdöoldk"
