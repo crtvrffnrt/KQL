@@ -9,3 +9,8 @@ DeviceRegistryEvents
 | where Timestamp > ago(5h)
 | where RegistryValueName == "EnableFirewall"
 | where RegistryValueData == "0"
+
+DeviceProcessEvents
+| where Timestamp > ago(2h) and FileName in~ ("net.exe", "net1.exe")
+| extend CanonicalCommandLine=replace("\"", "", ProcessCommandLine)
+| where CanonicalCommandLine contains "stop" and CanonicalCommandLine contains "MpsSvc" 
