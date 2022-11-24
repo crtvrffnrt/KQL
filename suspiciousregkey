@@ -1,0 +1,3 @@
+DeviceRegistryEvents 
+| where Timestamp > ago(24h)
+| where (RegistryKey contains @"\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\AutoAdminLogon")
