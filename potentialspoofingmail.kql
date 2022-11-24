@@ -1,0 +1,9 @@
+let trustet=dynamic(["example@mail.de"]);
+EmailEvents
+| where Timestamp > ago (24h)
+| where SenderMailFromAddress !in (trustet)
+| where SenderIPv4 !startswith "1.1." // 
+| where RecipientEmailAddress endswith "domain.de"
+| where SenderMailFromAddress endswith "domain.de"
+| mv-expand todynamic(AuthenticationDetails)
+| where AuthenticationDetails.SPF in ("fail","softfail")
