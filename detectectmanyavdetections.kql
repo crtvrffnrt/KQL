@@ -1,0 +1,6 @@
+DeviceEvents
+| where Timestamp > ago(3h)
+| where DeviceId != "1586d74a9f37323d27f7e29ec1a370df6b813191"
+| where ActionType == "AntivirusDetection"
+| summarize (Timestamp, ReportId)=arg_max(Timestamp, ReportId), count() by DeviceId
+| where count_ > 25
