@@ -1,0 +1,6 @@
+// Find all machines tried to turn off Defender Firewall by Powershell Command
+let powershellCommandName = "Set-NetFirewallProfile"; 
+DeviceEvents 
+| where Timestamp > ago (1h) 
+| where ActionType == "PowerShellCommand" 
+| where AdditionalFields contains powershellCommandName
