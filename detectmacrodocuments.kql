@@ -1,0 +1,9 @@
+let unkommonfiletypes = dynamic([".docm",".xlsm",".dot",".wbk",".dotm",".docb",".xlsm",".xlm",".xltm",".xlam",".xla",".ppt",".pptm",".potm",".ppsm",".sldm"]);
+let Officeprozesses = dynamic(["WINWORD","EXCEL", "PowerPoint", "Outlook"]);
+DeviceProcessEvents 
+| where Timestamp > ago (1d)
+| where FileName has_any (Officeprozesses)
+| where ProcessCommandLine has_any (unkommonfiletypes)
+
+
+
