@@ -1,4 +1,4 @@
-let malexe=dynamic(["Tor.exe","Nmap.exe","zenmap.exe", "mimikatz.exe","psexec.exe","psexec64.exe","kis21.exe","nc.exe"]);
+let malexe=dynamic(["Tor.exe","Nmap.exe","zenmap.exe", "mimikatz.exe","psexec.exe","psexec64.exe","kis21.exe","nc.exe","advanced_ip_scanner.exe"]);
 DeviceProcessEvents 
 | where Timestamp > ago (1d)
 | where DeviceId != @"e17bbb60a334dde9d0958c2233d89d37d51d278"
