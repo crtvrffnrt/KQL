@@ -1,5 +1,5 @@
 let BlockList = (externaldata(ip:string)
-[@"https://minstoragagus.blob.core.windows.net/$web/ipblacklist.txt"]
+[@"https://defaultclshl.blob.core.windows.net/files/ipblacklist.txt"]
 with(format="txt")
 | distinct ip
 | where ip matches regex "(^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$)"
