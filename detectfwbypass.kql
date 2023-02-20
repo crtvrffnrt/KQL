@@ -1,16 +1,25 @@
-// Find all machines tried to turn off Defender Firewall by Powershell Command
 let powershellCommandName = "Set-NetFirewallProfile"; 
+let firewallbyps = (
 DeviceEvents 
-| where Timestamp > ago (1h) 
 | where ActionType == "PowerShellCommand" 
 | where AdditionalFields contains powershellCommandName
-
+| where isnotempty(AdditionalFields)
+);
+let firewallbyregevent = (
 DeviceRegistryEvents
-| where Timestamp > ago(5h)
 | where RegistryValueName == "EnableFirewall"
 | where RegistryValueData == "0"
-
+);
+let firewallbycmd = (
 DeviceProcessEvents
-| where Timestamp > ago(2h) and FileName in~ ("net.exe", "net1.exe")
+| where FileName in~ ("net.exe", "net1.exe")
 | extend CanonicalCommandLine=replace("\"", "", ProcessCommandLine)
-| where CanonicalCommandLine contains "stop" and CanonicalCommandLine contains "MpsSvc" 
+| where CanonicalCommandLine contains "stop" and CanonicalCommandLine contains "MpsSvc"
+);
+let firewallbypsh = (
+DeviceProcessEvents 
+| where (((FolderPath endswith @'\powershell.exe' or FolderPath endswith @'\pwsh.exe' or FolderPath endswith @'\powershell_ise.exe') or ProcessCommandLine =~ @'PowerShell.EXE' or InitiatingProcessCommandLine =~ @'PowerShell.EXE') and (ProcessCommandLine contains @'Set-NetFirewallProfile ' and ProcessCommandLine contains @' -Enabled ' and ProcessCommandLine contains @' False') and (ProcessCommandLine contains @' -All ' or ProcessCommandLine contains @'Public' or ProcessCommandLine contains @'Domain' or ProcessCommandLine contains @'Private')));
+let firewallbypsh1 = (
+DeviceProcessEvents | where ((ProcessCommandLine contains @'netsh' and ProcessCommandLine contains @'firewall' and ProcessCommandLine contains @'set' and ProcessCommandLine contains @'opmode' and ProcessCommandLine contains @'mode=disable') or (ProcessCommandLine contains @'netsh' and ProcessCommandLine contains @'advfirewall' and ProcessCommandLine contains @'set' and ProcessCommandLine contains @'state' and ProcessCommandLine contains @'off'))
+);
+union firewallbyregevent,firewallbyps,firewallbycmd,firewallbypsh,firewallbypsh1
