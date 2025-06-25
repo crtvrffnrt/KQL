@@ -1,13 +1,5 @@
 let ip = '13.74.111.192'; // IP to search for
 let timeframe = ago(10d); // Time range
-let tables = dynamic([
-  "IdentityLogonEvents", "IdentityQueryEvents", "IdentityDirectoryEvents", "EmailEvents", 
-  "UrlClickEvents", "DeviceNetworkEvents", "DeviceFileEvents", "DeviceLogonEvents", 
-  "DeviceEvents", "BehaviorAnalytics", "CloudAppEvents", "AADSpnSignInEventsBeta", 
-  "AADSignInEventsBeta", "AADNonInteractiveUserSignInLogs", "AADServicePrincipalSignInLogs", 
-  "AADUserRiskEvents", "SigninLogs", "OfficeActivity", "AzureActivity", 
-  "MicrosoftGraphActivityLogs", "SecurityEvent", "SecurityAlert"
-]);
 union isfuzzy=true
   IdentityLogonEvents,
   IdentityQueryEvents,
