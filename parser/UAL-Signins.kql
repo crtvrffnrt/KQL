@@ -1,1 +1,29 @@
-
+UAL
+| where ['Operation'] in ("UserLoggedIn","UserLoginFailed","Authorize")
+| extend AuditData = parse_json(AuditData)
+| extend 
+CreationTime = todatetime(AuditData.CreationTime),
+Operation = tostring(AuditData.Operation),
+OrganizationId = tostring(AuditData.OrganizationId),
+RecordType = toint(AuditData.RecordType),
+UserId = tostring(AuditData.UserId),
+UserKey = tostring(AuditData.UserKey),UserType = toint(AuditData.UserType),
+Workload = tostring(AuditData.Workload),
+ResultStatus = tostring(AuditData.ResultStatus),
+ClientIP = tostring(AuditData.ClientIP),
+ActorIpAddress = tostring(AuditData.ActorIpAddress),
+AppId = coalesce(tostring(AuditData.ApplicationId),
+tostring(AuditData.AadAppId)),
+ObjectId = tostring(AuditData.ObjectId),
+ErrorCode = tostring(AuditData.ErrorNumber),
+LogonError = tostring(AuditData.LogonError)
+| extend IP = coalesce(ClientIP,ActorIpAddress)
+| mv-apply ep = AuditData.ExtendedProperties on (
+    summarize ResultStatusDetail = anyif(tostring(ep.Value), tostring(ep.Name)=="ResultStatusDetail"),UserAgent = anyif(tostring(ep.Value), tostring(ep.Name)=="UserAgent"),RequestType = anyif(tostring(ep.Value), tostring(ep.Name)=="RequestType")
+)
+| mv-apply dp = AuditData.DeviceProperties on (
+    summarize Browser = anyif(tostring(dp.Value), tostring(dp.Name)=="BrowserType"),OS = anyif(tostring(dp.Value), tostring(dp.Name)=="OS"),IsCompliant = anyif(tostring(dp.Value), tostring(dp.Name)=="IsCompliant"),IsManaged = anyif(tostring(dp.Value), tostring(dp.Name)=="IsCompliantAndManaged"),SessionId = anyif(tostring(dp.Value), tostring(dp.Name)=="SessionId")
+)
+| extend SignInResult = case(Operation=="UserLoginFailed","Failure",ResultStatus =~ "Success","Success","Other"),AuthFlow = case(Operation=="Authorize","Token/Authorize",RequestType has "OAuth2","OAuth2",RequestType has "Login","Interactive","Other")
+| project TimeGenerated=CreationTime,Operation,UserId,IP,SignInResult,ResultStatus,ResultStatusDetail,AuthFlow,RequestType,UserAgent,AppId,ObjectId,Workload,OS,Browser,SessionId,IsCompliant,IsManaged,ErrorCode,LogonError,RecordId
+| where Operation == "Authorize"
