@@ -1,0 +1,16 @@
+
+let sessionids = dynamic([
+"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" //change SessionIDS here
+"yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+]);
+UAL
+| where Operation == "MailItemsAccessed"
+| extend AuditData = parse_json(AuditData)
+| where AuditData.AppAccessContext.AADSessionId in (sessionids)
+| extend CreationTime = todatetime(AuditData.CreationTime),UserId = tostring(AuditData.UserId),ClientIP = tostring(AuditData.ClientIPAddress),SessionId = tostring(AuditData.AppAccessContext.AADSessionId)
+| mv-expand Folder = AuditData.Folders
+| mv-expand Item = Folder.FolderItems
+| extend InternetMessageId = tostring(Item.InternetMessageId),Subject = tostring(Item.Subject),ItemCreationTime = todatetime(Item.CreationTime),SizeInBytes = tolong(Item.SizeInBytes),FolderPath = tostring(Folder.Path)
+| where isnotempty(InternetMessageId)
+| project TimeGenerated=CreationTime,ItemCreationTime,UserId,ClientIP,SessionId,FolderPath,InternetMessageId,Subject,SizeInBytes,RecordId
+| summarize arg_min(TimeGenerated, *) by InternetMessageId
