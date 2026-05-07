@@ -1,0 +1,161 @@
+// Detection of possible Unix/Linux reverse shells based on DeviceEvents AdditionalFields.ScriptContent.
+// Author: Patrick Binder
+let Port = @"(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])";
+let IPv4 = @"(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(?:25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})";
+let IPv6 = @"(?:\[[0-9a-fA-F:.]+\]|[0-9a-fA-F]{0,4}:[0-9a-fA-F:.]+)";
+let Hostname = @"(?:[a-zA-Z0-9][a-zA-Z0-9.-]{0,253}\.[a-zA-Z]{2,63}|[a-zA-Z0-9][a-zA-Z0-9.-]{1,253})";
+let Host = strcat(@"(?:", IPv4, @"|", IPv6, @"|", Hostname, @")");
+let Shell = @"(?:/usr/bin/|/bin/|/usr/local/bin/)?(?:bash|sh|dash|ash|zsh|ksh|mksh|csh|tcsh)";
+let DevTcpUdp = strcat(@"/dev/(?:tcp|udp)/", Host, @"/", Port);
+let RxClassicDevTcp = strcat(
+    Shell, @"\s+-i\b[\s\S]{0,200}",
+    DevTcpUdp,
+    @"[\s\S]{0,200}(?:0>&1|2>&1|>&\d+|>\&\d+|<&\d+)"
+);
+let RxFdDevTcp = strcat(
+    @"(?:exec\s+\d+<>|\d+<>|<>)[\s\S]{0,120}",
+    DevTcpUdp,
+    @"[\s\S]{0,300}(?:", Shell, @"|cat\s+<&\d+|while\s+read|2>&\d+|>&\d+|<&\d+)"
+);
+let RxNetcatTargetFirst = strcat(
+    @"(?:^|[\s;|&])(?:nc|ncat|netcat|nc\.traditional|nc\.openbsd)\s+(?:-[a-z0-9]+\s+){0,8}",
+    Host,
+    @"\s+",
+    Port,
+    @"[\s\S]{0,160}(?:\s-[ec]\s+|\s--exec\s+|\s--sh-exec\s+)",
+    Shell
+);
+let RxNetcatShellFirst = strcat(
+    @"(?:^|[\s;|&])(?:nc|ncat|netcat|nc\.traditional|nc\.openbsd)[\s\S]{0,160}(?:\s-[ec]\s+|\s--exec\s+|\s--sh-exec\s+)",
+    Shell,
+    @"[\s\S]{0,160}",
+    Host,
+    @"\s+",
+    Port
+);
+let RxCurlWgetTelnet = strcat(
+    @"(?:curl|wget)[\s\S]{0,150}telnet://",
+    Host,
+    @":",
+    Port,
+    @"[\s\S]{0,300}\|\s*",
+    Shell
+);
+let RxPythonSocket = strcat(
+    @"python(?:\d+(?:\.\d+)?)?\s+-c\s+['""][\s\S]{0,900}(?:socket\.socket|create_connection)[\s\S]{0,900}(?:connect\s*\(\s*\(?\s*['""]",
+    Host,
+    @"['""]\s*,\s*",
+    Port,
+    @"|create_connection\s*\(\s*\(?\s*['""]",
+    Host,
+    @"['""]\s*,\s*",
+    Port,
+    @")[\s\S]{0,900}(?:dup2|fileno\s*\(\)|pty\.spawn)[\s\S]{0,300}",
+    Shell
+);
+let RxPythonEnv = strcat(
+    @"(?:rhost|lhost)\s*=\s*['""]?",
+    Host,
+    @"['""]?[\s\S]{0,200}(?:rport|lport)\s*=\s*['""]?",
+    Port,
+    @"['""]?[\s\S]{0,1200}python(?:\d+(?:\.\d+)?)?\s+-c\s+['""][\s\S]{0,1200}(?:connect|dup2|pty\.spawn)[\s\S]{0,300}",
+    Shell
+);
+let RxPerlSocket = strcat(
+    @"perl\s+-e\s+['""][\s\S]{0,1200}(?:\$i\s*=\s*['""]",
+    Host,
+    @"['""]|\$p\s*=\s*",
+    Port,
+    @"|inet_aton\s*\(\s*['""]",
+    Host,
+    @"['""]\s*\))[\s\S]{0,1200}(?:socket\s*\(|connect\s*\(|sockaddr_in)[\s\S]{0,1200}(?:open\s*\(\s*STDIN|open\s*\(\s*STDOUT|open\s*\(\s*STDERR)[\s\S]{0,500}exec\s*\([\s\S]{0,120}",
+    Shell
+);
+let RxSocat = strcat(
+    @"(?:^|[\s;|&])socat\s+(?:-[^\s]+\s+){0,8}(?:tcp|tcp4|tcp6|udp|udp4|udp6|openssl):",
+    Host,
+    @":",
+    Port,
+    @"[\s\S]{0,240}(?:exec|system):",
+    Shell
+);
+let RxZshZtcp = strcat(
+    @"zmodload\s+zsh/net/tcp[\s\S]{0,240}\bztcp\s+",
+    Host,
+    @"\s+",
+    Port,
+    @"[\s\S]{0,300}(?:\$reply|0>&\$reply|>&\$reply|2>&\$reply)"
+);
+let RxNodeChildProcess = strcat(
+    @"(?:require\s*\(['""]child_process['""]\)|child_process)[\s\S]{0,400}(?:exec|spawn)[\s\S]{0,400}(?:(?:nc|ncat|netcat)[\s\S]{0,160}(?:-[ec]|--exec|--sh-exec)[\s\S]{0,160}",
+    Host,
+    @"[\s\S]{0,80}",
+    Port,
+    @"|",
+    DevTcpUdp,
+    @")"
+);
+let ReverseShellRegex = strcat(
+    @"(?i)(",
+    RxClassicDevTcp,
+    @"|",
+    RxFdDevTcp,
+    @"|",
+    RxNetcatTargetFirst,
+    @"|",
+    RxNetcatShellFirst,
+    @"|",
+    RxCurlWgetTelnet,
+    @"|",
+    RxPythonSocket,
+    @"|",
+    RxPythonEnv,
+    @"|",
+    RxPerlSocket,
+    @"|",
+    RxSocat,
+    @"|",
+    RxZshZtcp,
+    @"|",
+    RxNodeChildProcess,
+    @")"
+);
+DeviceEvents
+| extend EventTime = coalesce(
+    column_ifexists("Timestamp", datetime(null)),
+    column_ifexists("TimeGenerated", datetime(null))
+)
+| extend ScriptContent = tostring(parse_json(AdditionalFields).ScriptContent)
+| where isnotempty(ScriptContent)
+| where ScriptContent has_any (
+    "bash", "sh", "dash", "ash", "zsh", "ksh", "mksh", "csh", "tcsh",
+    "/dev/tcp", "/dev/udp", "nc", "ncat", "netcat", "socat", "ztcp",
+    "telnet://", "socket", "dup2", "pty.spawn", "child_process"
+)
+| where ScriptContent matches regex ReverseShellRegex
+| extend TargetRaw = coalesce(
+    extract(@"/dev/(?:tcp|udp)/([^/\s]+)/", 1, ScriptContent),
+    extract(@"(?i)telnet://([^:/\s]+):", 1, ScriptContent),
+    extract(@"(?i)(?:tcp|tcp4|tcp6|udp|udp4|udp6|openssl):([^:\s]+):", 1, ScriptContent),
+    extract(@"(?i)\bztcp\s+([^\s]+)\s+", 1, ScriptContent),
+    extract(@"(?i)\b(?:nc|ncat|netcat|nc\.traditional|nc\.openbsd)\s+(?:-[a-z0-9]+\s+){0,8}([^\s]+)\s+\d+", 1, ScriptContent),
+    extract(@"(?i)connect\s*\(\s*\(?\s*['""]([^'""]+)['""]\s*,", 1, ScriptContent),
+    extract(@"(?i)create_connection\s*\(\s*\(?\s*['""]([^'""]+)['""]\s*,", 1, ScriptContent),
+    extract(@"(?i)\$i\s*=\s*['""]([^'""]+)['""]", 1, ScriptContent),
+    extract(@"(?i)(?:RHOST|LHOST)\s*=\s*['""]?([^'""]+?)['""]?(?:;|\s)", 1, ScriptContent)
+)
+| extend Target = replace_regex(tostring(TargetRaw), @"^\[|\]$", "")
+| where isnotempty(Target)
+| extend TargetIPv4 = iff(Target matches regex strcat(@"^", IPv4, @"$"), Target, "")
+| extend TargetIPv6 = iff(Target matches regex strcat(@"^", IPv6, @"$") and isempty(TargetIPv4), Target, "")
+| extend TargetHostname = iff(isempty(TargetIPv4) and isempty(TargetIPv6), Target, "")
+| project
+    EventTime,
+    DeviceId,
+    DeviceName,
+    ActionType,
+    ScriptContent,
+    TargetIPv4,
+    TargetIPv6,
+    TargetHostname,
+    SHA256
