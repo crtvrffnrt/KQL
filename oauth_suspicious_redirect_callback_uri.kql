@@ -1,0 +1,105 @@
+let SuspiciousExactDomains = dynamic([
+    "oast.fun", "oast.live", "oast.me", "oast.online", "oast.pro", "oast.site",
+    "oastify.com", "interact.sh", "interactsh.com",
+    "burpcollaborator.net", "burpcollaborator.com",
+    "canarytokens.com", "canarytokens.org",
+    "webhook.site", "pipedream.net", "pipedream.com", "requestbin.com", "requestbin.net",
+    "requestcatcher.com", "beeceptor.com", "hookdeck.com", "mockbin.org", "postman-echo.com",
+    "httpbin.org", "putsreq.com", "smee.io",
+    "ngrok.io", "ngrok-free.app", "ngrok.app", "ngrok.dev", "ngrok.pizza", "ngrok.pro","msobb.de",
+    "trycloudflare.com", "cfargotunnel.com",
+    "localtunnel.me", "loca.lt", "serveo.net", "localhost.run", "pagekite.me", "telebit.io",
+    "inlets.dev", "bore.pub", "zrok.io", "zrok.cloud"
+]);
+let SuspiciousHostKeywords = dynamic([
+    "webhook", "webhooks", "receiver", "listener",
+    "oast", "interact", "burpcollaborator", "canarytoken",
+    "requestbin", "requestcatcher", "beeceptor", "hookdeck", "mockbin",
+    "ngrok", "cloudflared", "argotunnel", "localtunnel", "serveo", "pagekite", "telebit", "zrok"
+]);
+let SuspiciousTlds = dynamic([
+    "fun", "site", "click", "top", "xyz", "icu", "monster",
+    "cyou", "quest", "bond", "lol", "sbs", "buzz", "cam", "work", "rest"
+]);
+let BenignRedirectHosts = dynamic([
+    // Add tenant-specific known-good redirect hosts here.
+    // Examples:
+    // "login.microsoftonline.com",
+    // "localhost",
+    // "127.0.0.1"
+]);
+AuditLogs
+| where TargetResources has "AppAddress" or TargetResources has "http"
+| extend InitiatedByJson = parse_json(tostring(InitiatedBy))
+| extend
+    InitiatedByUser = tostring(InitiatedByJson.user.userPrincipalName),
+    InitiatedByUserId = tostring(InitiatedByJson.user.id),
+    InitiatedByApp = tostring(InitiatedByJson.app.displayName),
+    InitiatedByAppId = tostring(InitiatedByJson.app.appId),
+    InitiatedByIpAddress = tostring(InitiatedByJson.user.ipAddress)
+| mv-expand TargetResource = TargetResources
+| extend
+    TargetResourceDisplayName = tostring(TargetResource.displayName),
+    TargetResourceType = tostring(TargetResource.type),
+    TargetResourceId = tostring(TargetResource.id),
+    ModifiedProperties = TargetResource.modifiedProperties
+| mv-expand ModifiedProperty = ModifiedProperties
+| extend
+    ModifiedPropertyName = tostring(ModifiedProperty.displayName),
+    ModifiedPropertyNewValue = tostring(ModifiedProperty.newValue),
+    ModifiedPropertyOldValue = tostring(ModifiedProperty.oldValue)
+| where ModifiedPropertyName =~ "AppAddress"
+| extend UrlCandidates = extract_all(
+    @"(https?://[^\s""'<>;,\]\}\\]+)",
+    strcat(ModifiedPropertyNewValue, " ", ModifiedPropertyOldValue)
+)
+| mv-expand RedirectUri = UrlCandidates
+| extend RedirectUri = trim(@" .""'<>", tostring(RedirectUri))
+| where isnotempty(RedirectUri)
+| extend ParsedRedirectUri = parse_url(RedirectUri)
+| extend
+    RedirectHost = tolower(tostring(ParsedRedirectUri.Host)),
+    RedirectScheme = tolower(tostring(ParsedRedirectUri.Scheme)),
+    RedirectPath = tostring(ParsedRedirectUri.Path)
+| extend RedirectHostParts = split(RedirectHost, ".")
+| extend RedirectTld = tostring(RedirectHostParts[array_length(RedirectHostParts) - 1])
+| where RedirectHost !in~ (BenignRedirectHosts)
+| extend
+    MatchedExactDomain = iff(RedirectHost has_any (SuspiciousExactDomains), true, false),
+    MatchedKeyword = iff(RedirectHost has_any (SuspiciousHostKeywords), true, false),
+    MatchedSuspiciousTld = iff(RedirectTld in~ (SuspiciousTlds), true, false)
+| where MatchedExactDomain or MatchedKeyword or MatchedSuspiciousTld
+| extend DetectionReason = strcat_array(
+    pack_array(
+        iff(MatchedExactDomain, "Known suspicious redirect/callback domain", ""),
+        iff(MatchedKeyword, "Suspicious callback/listener keyword in redirect host", ""),
+        iff(MatchedSuspiciousTld, "Suspicious or abuse-prone redirect TLD", "")
+    ),
+    "; "
+)
+| extend DetectionReason = trim(@";\s", replace_string(DetectionReason, "; ;", ";"))
+| project
+    TimeGenerated,
+    OperationName,
+    Result,
+    Category,
+    ActivityDateTime,
+    InitiatedByUser,
+    InitiatedByUserId,
+    InitiatedByApp,
+    InitiatedByAppId,
+    InitiatedByIpAddress,
+    TargetResourceDisplayName,
+    TargetResourceType,
+    TargetResourceId,
+    ModifiedPropertyName,
+    RedirectUri,
+    RedirectHost,
+    RedirectTld,
+    DetectionReason,
+    ModifiedPropertyNewValue,
+    ModifiedPropertyOldValue,
+    CorrelationId,
+    AADOperationType,
+    LoggedByService
+| order by TimeGenerated desc
