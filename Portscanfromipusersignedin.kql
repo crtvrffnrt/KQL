@@ -1,0 +1,57 @@
+// Port scan detection correlated with successful sign-ins using ASIM Network Session data.
+// Tunables:
+// - PortScanThreshold: minimum distinct destination ports per source IP in the time bin.
+// - lookback: detection window.
+// - trustedAzureRange: exclude known Azure source range noise from this environment.
+let PortScanThreshold = 100;
+let lookback = 1d;
+let trustedAzureRange = "20.82.0.0/17";
+// Successful sign-ins grouped by source IP so the join stays small and stable.
+let SuccessfulSignins =
+    SigninLogs
+    | where TimeGenerated > ago(lookback)
+    | where ResultType == 0
+    | summarize
+        SigninTime = max(TimeGenerated),
+        Users = make_set(UserPrincipalName, 20),
+        Apps = make_set(AppDisplayName, 20),
+        RiskLevels = make_set(RiskLevel, 20),
+        RiskStates = make_set(RiskState, 20)
+      by IPAddress;
+// ASIM Network Session is the generic normalized source for firewall/proxy/router-like network logs.
+// If your workspace uses deployed parsers, the equivalent may be `imNetworkSession`.
+let PortScanActivity =
+    _Im_NetworkSession
+    | where TimeGenerated > ago(lookback)
+    | where isnotempty(SrcIpAddr)
+    | where DstPortNumber > 0
+    | where SrcIpAddr !in ("127.0.0.1", "::1")
+    | where not(ipv4_is_in_range(SrcIpAddr, trustedAzureRange)) // Exclude trusted Azure source IP space.
+    | where not(
+        ipv4_is_match("10.0.0.0", SrcIpAddr, 8)
+        or ipv4_is_match("172.16.0.0", SrcIpAddr, 12)
+        or ipv4_is_match("192.168.0.0", SrcIpAddr, 16)
+      ) // Exclude RFC1918 source IPs.
+    | summarize
+        DistinctDstPorts = dcount(DstPortNumber),
+        PortSamples = make_set(DstPortNumber, 20),
+        FirstSeen = min(TimeGenerated),
+        LastSeen = max(TimeGenerated)
+      by SrcIpAddr, bin(TimeGenerated, 5m)
+    | where DistinctDstPorts > PortScanThreshold;
+PortScanActivity
+| join kind=inner SuccessfulSignins on $left.SrcIpAddr == $right.IPAddress
+| project
+    TimeGenerated = LastSeen,
+    SrcIpAddr,
+    DistinctDstPorts,
+    PortSamples,
+    FirstSeen,
+    LastSeen,
+    SigninTime,
+    Users,
+    Apps,
+    RiskLevels,
+    RiskStates,
+    IPAddress
+| order by DistinctDstPorts desc
