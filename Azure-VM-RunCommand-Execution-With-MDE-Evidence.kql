@@ -1,0 +1,192 @@
+//
+// Name: Azure-VM-RunCommand-Remote-Execution-With-Endpoint-Evidence.kql
+//
+// Purpose:
+// Correlates Azure VM Run Command control-plane activity from AzureActivity
+// with endpoint-side execution evidence from Microsoft Defender for Endpoint.
+//
+// Prerequisites:
+// - AzureActivity logs must be ingested into the queried Log Analytics / Sentinel workspace.
+// - Microsoft Defender for Endpoint Advanced Hunting tables must be available in the same query scope.
+// - The target VMs must be onboarded to Microsoft Defender for Endpoint.
+// - Device names in MDE must correlate to Azure VM names, at least by short hostname.
+// - Endpoint telemetry must include DeviceProcessEvents.
+// - Script content is only shown when available in DeviceEvents / AMSI / PowerShell telemetry.
+// - AzureActivity normally shows who invoked Run Command and on which VM, but usually does not contain the submitted script body.
+// - TimeGenerated is UTC. Adjust Lookback or query time range accordingly.
+//
+let Lookback = 14d;
+let TimeWindow = 15m;
+//
+// Azure control-plane: only actual VM Run Command executions
+//
+let AzureRunCommand =
+    AzureActivity
+    | where TimeGenerated >= ago(Lookback)
+    | where ResourceProviderValue =~ "MICROSOFT.COMPUTE"
+    | where OperationNameValue =~ "MICROSOFT.COMPUTE/VIRTUALMACHINES/RUNCOMMAND/ACTION"
+        or tostring(parse_json(Authorization).action) =~ "Microsoft.Compute/virtualMachines/runCommand/action"
+        or Properties has "Microsoft.Compute/virtualMachines/runCommand/action"
+    | extend ParsedClaims = todynamic(Claims)
+    | extend ParsedAuth = todynamic(Authorization)
+    | extend ParsedProps = todynamic(Properties)
+    | extend VMName = tolower(tostring(coalesce(
+        ParsedProps.resource,
+        split(_ResourceId, "/")[8]
+    )))
+    | extend CallerIdentity = tostring(coalesce(
+        Caller,
+        ParsedClaims["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"],
+        ParsedClaims["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"],
+        ParsedClaims["appid"]
+    ))
+    | extend CallerObjectId = tostring(coalesce(
+        ParsedClaims["http://schemas.microsoft.com/identity/claims/objectidentifier"],
+        ParsedClaims["oid"]
+    ))
+    | extend AppId = tostring(coalesce(
+        ParsedClaims["appid"],
+        ParsedClaims["azp"]
+    ))
+    | extend AuthRole = tostring(ParsedAuth.evidence.role)
+    | extend AuthScope = tostring(ParsedAuth.evidence.roleAssignmentScope)
+    | project
+        RunCommandTime = TimeGenerated,
+        SubscriptionId,
+        ResourceGroup,
+        VMName,
+        CallerIdentity,
+        CallerObjectId,
+        AppId,
+        CallerIpAddress,
+        ActivityStatusValue,
+        ActivitySubstatusValue,
+        AuthRole,
+        AuthScope,
+        CorrelationId,
+        ResourceId = _ResourceId;
+//
+// Endpoint telemetry: PowerShell, RunCommandExtension, regsvr32, cmd, and AMSI script content
+//
+let EndpointCommandEvidence =
+    union isfuzzy=true
+    (
+        DeviceProcessEvents
+        | where TimeGenerated >= ago(Lookback)
+        | extend DeviceShortName = tolower(tostring(split(DeviceName, ".")[0]))
+        | where FileName in~ (
+            "RunCommandExtension.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "cmd.exe",
+            "regsvr32.exe"
+        )
+        or ProcessCommandLine has_any (
+            "RunCommandExtension",
+            "script0.ps1",
+            "-ExecutionPolicy Unrestricted",
+            "regsvr32",
+            "Microsoft.CPlat.Core.RunCommandWindows"
+        )
+        or InitiatingProcessCommandLine has_any (
+            "RunCommandExtension",
+            "script0.ps1",
+            "Microsoft.CPlat.Core.RunCommandWindows"
+        )
+        | project
+            EvidenceTime = TimeGenerated,
+            DeviceName,
+            DeviceShortName,
+            EvidenceType = "Process",
+            EvidenceAction = ActionType,
+            EvidenceFile = FileName,
+            CommandOrScript = ProcessCommandLine,
+            InitiatingProcessFileName,
+            InitiatingProcessCommandLine,
+            InitiatingProcessAccountName,
+            ProcessId,
+            InitiatingProcessId
+    ),
+    (
+        DeviceEvents
+        | where TimeGenerated >= ago(Lookback)
+        | extend DeviceShortName = tolower(tostring(split(DeviceName, ".")[0]))
+        | where ActionType has_any (
+            "Amsi",
+            "PowerShell",
+            "Script"
+        )
+        or AdditionalFields has_any (
+            "script0.ps1",
+            "regsvr32",
+            "fm20.dll",
+            "mscomctl.ocx",
+            "RunCommandExtension"
+        )
+        | extend AF = todynamic(AdditionalFields)
+        | extend ScriptContent = tostring(coalesce(
+            AF.ScriptContent,
+            AF.Command,
+            AF.CommandLine,
+            AF.Content,
+            AF.ScriptBlockText,
+            AF.Payload
+        ))
+        | where isnotempty(ScriptContent)
+            or AdditionalFields has_any (
+                "script0.ps1",
+                "regsvr32",
+                "fm20.dll",
+                "mscomctl.ocx",
+                "RunCommandExtension"
+            )
+        | project
+            EvidenceTime = TimeGenerated,
+            DeviceName,
+            DeviceShortName,
+            EvidenceType = "DeviceEvent",
+            EvidenceAction = ActionType,
+            EvidenceFile = "",
+            CommandOrScript = coalesce(ScriptContent, tostring(AdditionalFields)),
+            InitiatingProcessFileName,
+            InitiatingProcessCommandLine,
+            InitiatingProcessAccountName,
+            ProcessId = int(null),
+            InitiatingProcessId = int(null)
+    );
+//
+// Correlate Azure RunCommand with endpoint execution evidence on the target VM.
+// Rows with missing endpoint evidence arrays are removed after summarization.
+//
+AzureRunCommand
+| join kind=leftouter EndpointCommandEvidence on $left.VMName == $right.DeviceShortName
+| where isempty(EvidenceTime)
+    or EvidenceTime between ((RunCommandTime - TimeWindow) .. (RunCommandTime + TimeWindow))
+| summarize
+    FirstEndpointEvidence=min(EvidenceTime),
+    LastEndpointEvidence=max(EvidenceTime),
+    EndpointActions=make_set_if(EvidenceAction, isnotempty(EvidenceAction), 20),
+    ProcessFiles=make_set_if(EvidenceFile, isnotempty(EvidenceFile), 20),
+    CommandsOrScripts=make_set_if(CommandOrScript, isnotempty(CommandOrScript), 50),
+    InitiatingProcesses=make_set_if(InitiatingProcessCommandLine, isnotempty(InitiatingProcessCommandLine), 30),
+    LoggedOnOrProcessUsers=make_set_if(InitiatingProcessAccountName, isnotempty(InitiatingProcessAccountName), 20)
+    by
+    RunCommandTime,
+    SubscriptionId,
+    ResourceGroup,
+    VMName,
+    CallerIdentity,
+    CallerObjectId,
+    AppId,
+    CallerIpAddress,
+    ActivityStatusValue,
+    ActivitySubstatusValue,
+    AuthRole,
+    AuthScope,
+    CorrelationId,
+    ResourceId
+| where array_length(ProcessFiles) > 0
+| where array_length(InitiatingProcesses) > 0
+| where array_length(CommandsOrScripts) > 0
+| where array_length(EndpointActions) > 0
+| order by RunCommandTime desc
